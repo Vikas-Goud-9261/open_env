@@ -27,21 +27,28 @@ class CodeReview():
         return self._get_observations()
 
     def step(self, action: Action):
-
         reward = 0.0
+        VALID_ACTIONS = ['identify_issue', 'suggest_fix', 'approve']
+        reward -= 0.1
 
         if self.state.done:
             return self._get_observations(), reward, self.state.done, {}
 
-        self.state.step_count += 1
-        self.state.history.append(action.action_type)
+        if action.action_type not in VALID_ACTIONS:
+            return self._get_observations(), -0.5, self.state.done, {}
+
+        if action.line_number is not None and action.line_number <= 0 :
+            return self._get_observations(), -0.3, self.state.done, {}
 
         true_issues = self.state.true_issues
 
         if action.action_type == 'identify_issue':
+            if action.line_number is None or action.issue_type is None:
+                return self._get_observations(), -0.5, self.state.done, {}
+
             identified_line = action.line_number
             identified_issue = action.issue_type
-
+            found = False
             for issue in true_issues:
                 if identified_line == issue['line'] and identified_issue == issue['issue_type']:
                     reward += 0.4
@@ -49,14 +56,18 @@ class CodeReview():
                         'line' : identified_line,
                         'issue_type' : identified_issue
                     })
+                    found = True
+                    break
 
-                else:
-                    reward -= 0.2
+            if not found:
+                reward -= 0.2
 
         elif action.action_type == 'suggest_fix':
+            if action.line_number is None or action.suggestion is None:
+                return self._get_observations, -0.5, self.state.done, {}
 
             identified_fixes = action.suggestion
-
+            found = False
             for issue in true_issues:
                 if issue['expected_fix'] in identified_fixes:
                     reward += 0.4
@@ -64,8 +75,10 @@ class CodeReview():
                         'line' : action.line_number,
                         'suggested_fix' : action.suggestion
                     })
-                else:
-                    reward -= 0.2
+                    found = True
+                    break
+            if not found:
+                reward -= 0.2
 
 
         elif action.action_type == 'approve':
@@ -88,6 +101,9 @@ class CodeReview():
             reward += correct/total
 
 
+        self.state.step_count += 1
+        self.state.history.append(action.action_type)
+        
         if action.action_type == 'approve':
             self.state.done = True
 
@@ -95,6 +111,7 @@ class CodeReview():
             self.state.done = True
 
         return self._get_observations(), reward, self.state.done, {}
+        
 
 
     def state(self):
