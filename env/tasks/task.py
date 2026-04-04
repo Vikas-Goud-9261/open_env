@@ -8,7 +8,7 @@ task = {
     return i
     """,
 
-  "original_code" : "",
+  "reference_code" : "",
   "true_issues": [
     {
       "line": 4,

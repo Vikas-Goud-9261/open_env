@@ -1,11 +1,13 @@
 from env.core.models import Observation, Action, Internal_state
 from env.tasks.task import task
+from env.utils.codebleu import CodeBLEU
 
 class CodeReview():
 
     def __init__(self):
         self.task = task
         self.state = None
+        self.codebleu = CodeBLEU()
 
     
     def reset(self) -> Observation:
@@ -53,7 +55,7 @@ class CodeReview():
                 if identified_line == issue['line'] and identified_issue == issue['issue_type']:
 
                     already_found_issue = any(
-                        iss['line'] == issue['line'] and iss['issue_type'] == issue['issue_type'] for iss in self.state.identified_issues
+                        iss['line'] == identified_line and iss['issue_type'] == identified_issue for iss in self.state.identified_issues
                     )
 
                     if already_found_issue:
@@ -76,25 +78,37 @@ class CodeReview():
 
             max_lines = len(self.state.code.split("\n"))
             if action.line_number > max_lines:
-                return self._get_observations, -0.3, self.state.done , {'meta' : 'Line number excedded out of bound'}
+                return self._get_observations(), -0.3, self.state.done , {'meta' : 'Line number excedded out of bound'}
 
             identified_lines = [i['line'] for i in self.state.identified_issues]
             if action.line_number not in identified_lines:    
                 return self._get_observations(), -0.5, self.state.done, {'meta' : 'Trying to fix an issue not present in identified issues or trying to fix an issue before identifying it'}
-
+            
             identified_fixes = action.suggestion
             found = False
             for issue in true_issues:
+                
                 if issue['expected_fix'] in identified_fixes:
-                    already_fixed_issue = any(
-                        fix['line'] == issue['line'] and issue['expected_fix'] in fix['suggested_fix'] for fix in self.state.fixes_applied
-                    )
 
+                    already_fixed_issue = any(
+                        fix['line'] == action.line_number and fix['suggested_fix'] == action.suggestion for fix in self.state.fixes_applied
+                    )
                     if already_fixed_issue:
                         return self._get_observations(), -0.2 , self.state.done, {'meta' : 'Duplicate fix'}
 
                     else:
-                        reward += 0.4
+                        local_reward = self.codebleu.score(code = action.suggestion, reference_code = issue['expected_fix'], language = self.state.language)['codebleu']
+
+                        if local_reward > 0.3:
+                            patched_code = self._patch_code(self.state.code, action.line_number, action.suggestion)
+                            global_reward = self.codebleu.score(patched_code, self.task['reference_code'], language = self.state.language)['codebleu']
+                            self.state.code = patched_code
+                        else :
+                            global_reward = 0.0
+
+                        final_score = 0.7*local_reward + 0.3*global_reward
+                        reward += 0.4*final_score
+
                         self.state.fixes_applied.append({
                             'line' : action.line_number,
                             'suggested_fix' : action.suggestion
@@ -108,6 +122,9 @@ class CodeReview():
         elif action.action_type == 'approve':
             correct = 0
             total = len(true_issues)
+            
+            if len(self.state.identified_issues) == 0:
+                reward -= 0.4
 
             for issue in true_issues:
                 issue_found = any(
@@ -122,13 +139,16 @@ class CodeReview():
 
             reward += correct/total
 
+            if correct > 0:
+                candidate_code = self.state.code
+                reference_code = self.task['reference_code']
+                approval_cb_score = self.codebleu.score(candidate_code, reference_code, language = self.state.language)['codebleu']
+                reward += 0.2*approval_cb_score
+
             if correct == total:
                 reward += 1.0
             else:
                 reward -= 0.6
-
-            if len(self.state.identified_issues) == 0:
-                reward -= 0.4
 
 
         self.state.step_count += 1
@@ -146,6 +166,16 @@ class CodeReview():
 
     def state(self):
         return self.state
+
+    def _patch_code(self, code:str, line_number:int, new_line:str) -> str:
+        lines = code.split('\n')
+
+        if line_number< 1 or line_number > len(lines):
+            return code
+        
+        lines[line_number - 1] = new_line
+        patched_code = '\n'.join(lines)
+        return patched_code
 
     def _get_observations(self) -> Observation:
         observation = Observation(
