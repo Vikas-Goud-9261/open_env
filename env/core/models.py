@@ -1,36 +1,63 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 
 class Observation(BaseModel):
-    code : str
-    language : str
-    task_id : str
-    difficulty : str
-    history : List[str]
-    current_step : int
-    max_steps : int
+    # Core code info
+    code              : str
+    language          : str
+    task_id           : str
+    difficulty        : str
+
+    # Step tracking
+    current_step      : int
+    max_steps         : int
+
+    # Agent's action history
+    history           : List[Dict[str, Any]]  # was List[str], now full dict
+
+    # What agent can do
     available_actions : List[str]
 
+    # Agent's progress — was missing before
+    identified_issues : List[Dict[str, Any]]
+    fixes_applied     : List[Dict[str, Any]]
+
+    # Bug progress info — was missing before
+    total_bugs        : int
+    bugs_addressed    : int
+    can_approve       : bool
 
 
 class Action(BaseModel):
-    action_type : str # identify issue, suggest a fix, implement the fix
-    line_number : Optional[int] = None# where is the issue exactly, or in which line is the issue.
-    issue_type : Optional[str] = None #oka set of issue types ani em undadu. Agent gets to know after certain iterations.
-    suggestion : Optional[str] = None
-
+    action_type  : str                    # identify_issue / suggest_fix / approve
+    line_number  : Optional[int]  = None  # which line
+    issue_type   : Optional[str]  = None  # type of bug
+    description  : Optional[str]  = None  # agent's description of bug ← NEW
+    suggestion   : Optional[str]  = None  # fix suggestion
 
 
 class Internal_state(BaseModel):
-    code: str
-    language: str
-    task_id: str
-    difficulty: str
-    true_issues: List[dict]
-    identified_issues: List[dict]
-    fixes_applied: List[dict]
-    history: List[str]
-    step_count: int
-    max_steps: int
-    done: bool
+    # Core code info
+    code              : str
+    language          : str
+    task_id           : str
+    difficulty        : str
+
+    # Task ground truth
+    true_issues       : List[Dict[str, Any]]
+
+    # Agent's tracked progress
+    identified_issues : List[Dict[str, Any]]
+    fixes_applied     : List[Dict[str, Any]]
+
+    # History — was List[str], now full dict
+    history           : List[Dict[str, Any]]
+
+    # Step tracking
+    step_count        : int
+    max_steps         : int
+    done              : bool
+
+    # Registry — the new core tracking system
+    issue_registry    : Dict[int, Dict[str, Any]]  # ← NEW
